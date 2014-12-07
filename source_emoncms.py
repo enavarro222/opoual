@@ -13,10 +13,13 @@ class EmoncmsSource(object):
     """ Get data from emoncms API
     """
 
-    def __init__(self, url):
+    def __init__(self, url, apikey=None):
         self.url = url
+        self.apikey = apikey
 
     def _get_json(self, url, params=None):
+        if params is None:
+            params = self._default_params()
         results = requests.get(url, params=params)
         # error if not 200 for HTTP status
         results.raise_for_status()
@@ -24,6 +27,12 @@ class EmoncmsSource(object):
             raise RuntimeError("Impossible to get the data (%s)" % results.url)
         #print query
         return results.json()
+
+    def _default_params(self):
+        params = {}
+        if self.apikey is not None:
+            params["apikey"] = self.apikey
+        return params
 
     def feeds(self):
         """ Get data about all available feeds
@@ -49,7 +58,7 @@ class EmoncmsSource(object):
             t_end = t_start + nb_to_read*delta_sec*1000
             #rint  int( t_start ), int( t_end )
             query = self.url + "/feed/average.json"
-            params = {}
+            params = self._default_params()
             params["id"] = fid
             params["start"] = int(t_start)
             params["end"] = t_end
@@ -70,12 +79,16 @@ def main():
     parser = argparse.ArgumentParser()
     
     parser.add_argument("-u", "--url", action='store', type=str, help="emoncms root url")
-    parser.add_argument("-f", "--feed_id", action='store', type=int, help="Feed ID")
+    parser.add_argument("-k", "--api-key",
+        action='store', type=str,
+        help="API key (get public data if not given)", default=None
+    )
+    parser.add_argument("-f", "--feed-id", action='store', type=int, help="Feed ID")
 
     args = parser.parse_args()
 
     # Build emoncms data source object
-    emon_src = EmoncmsSource(args.url)
+    emon_src = EmoncmsSource(args.url, apikey=args.api_key)
 
     ## list all feed
     from pprint import pprint
@@ -87,7 +100,7 @@ def main():
     ## Plot one feed
     if args.feed_id:
         print("#"*5 + " PLOT  " + "#"*5)
-        start_date = datetime.datetime(2014, 9, 10)
+        start_date = datetime(2014, 9, 10)
         delta_sec = 60*5
         ts = emon_src.get_data(args.feed_id, start_date, delta_sec, nb_data=10000)
         ts.plot()
