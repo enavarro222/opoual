@@ -2,7 +2,7 @@
 #-*- coding:utf-8 -*-
 import sys
 
-import datetime
+from datetime import datetime
 import time
 import requests
 
@@ -15,6 +15,23 @@ class EmoncmsSource(object):
 
     def __init__(self, url):
         self.url = url
+
+    def _get_json(self, url, params=None):
+        results = requests.get(url, params=params)
+        # error if not 200 for HTTP status
+        results.raise_for_status()
+        if results.text == "false":
+            raise RuntimeError("Impossible to get the data (%s)" % results.url)
+        #print query
+        return results.json()
+
+    def feeds(self):
+        """ Get data about all available feeds
+        """
+        res = self._get_json(self.url + "/feed/list.json?userid=1")  #XXX: userid=1 to get public data (to check)
+        for feed in res:
+            feed["date"] = datetime.fromtimestamp(feed["time"])
+        return res
 
     def get_data(self, fid, start_date, delta_sec, nb_data=10000):
         """
@@ -31,26 +48,20 @@ class EmoncmsSource(object):
             nb_to_read = min(nb_each_request, nb_data-nb_read)
             t_end = t_start + nb_to_read*delta_sec*1000
             #rint  int( t_start ), int( t_end )
-            query = [self.url]
-            query.append("/feed/average.json")
-            query = "".join(query)
+            query = self.url + "/feed/average.json"
             params = {}
             params["id"] = fid
             params["start"] = int(t_start)
             params["end"] = t_end
             params["interval"] = delta_sec
             
-            results = requests.get(query, params=params)
-            if results.text == "false":
-                raise RuntimeError("Error to fetch data (%s)" % results.url)
-            #print query
-            data_brut += results.json()
+            data_brut += self._get_json(query, params)
             nb_read += nb_to_read
             t_start = data_brut[-1][0]
         
         ## convert it to panda
         dates, vals = zip(*data_brut)
-        dates = [datetime.datetime.fromtimestamp(date/1000) for date in dates]
+        dates = [datetime.fromtimestamp(date/1000) for date in dates]
         ts = pd.Series(vals, index=dates)
         return ts
 
@@ -61,16 +72,28 @@ def main():
     parser.add_argument("-u", "--url", action='store', type=str, help="emoncms root url")
     parser.add_argument("-f", "--feed_id", action='store', type=int, help="Feed ID")
 
-#    parser.add_argument("DOCTYPE", choices=["wiki", "email", "pad"], action='store', help="doctype")
-
     args = parser.parse_args()
 
+    # Build emoncms data source object
     emon_src = EmoncmsSource(args.url)
-    start_date = datetime.datetime(2014, 9, 10)
-    delta_sec = 60*5
-    ts = emon_src.get_data(args.feed_id, start_date, delta_sec, nb_data=10000)
-    ts.plot()
-    plt.show()
+
+    ## list all feed
+    from pprint import pprint
+    print("#"*5 + " ALL FEEDS  " + "#"*5)
+    feeds = emon_src.feeds()
+    for feed in feeds:
+        print("* id:{id:<3} name:{name:<16} value:{value:<10} last update:{date}".format(**feed))
+
+    ## Plot one feed
+    if args.feed_id:
+        print("#"*5 + " PLOT  " + "#"*5)
+        start_date = datetime.datetime(2014, 9, 10)
+        delta_sec = 60*5
+        ts = emon_src.get_data(args.feed_id, start_date, delta_sec, nb_data=10000)
+        ts.plot()
+        plt.show()
+
+    return 0
 
 if __name__ == '__main__':
     sys.exit(main())
