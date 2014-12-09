@@ -4,6 +4,8 @@ import sys
 
 from datetime import datetime
 import time
+import calendar
+
 import requests
 
 import pandas as pd
@@ -39,6 +41,7 @@ class EmoncmsSource(object):
         """
         res = self._get_json(self.url + "/feed/list.json?userid=1")  #XXX: userid=1 to get public data (to check)
         for feed in res:
+            feed["id"] = int(feed["id"])
             feed["date"] = datetime.fromtimestamp(feed["time"])
         return res
 
@@ -48,7 +51,17 @@ class EmoncmsSource(object):
         """
         ## make the requests
         t_start = time.mktime( start_date.timetuple() )*1000
+        #t_start = calendar.timegm(start_date.timetuple())*1000
+
+        # search for feed
+        for feed in self.feeds():
+            if fid == feed['id']:
+                feed_name = feed['name']
+                break
+        else:
+            raise ValueError("Field %s is unknow" % fid)
         
+        # get datas
         data_brut = []
         nb_read = 0
         nb_each_request = 800
@@ -71,7 +84,7 @@ class EmoncmsSource(object):
         ## convert it to panda
         dates, vals = zip(*data_brut)
         dates = [datetime.fromtimestamp(date/1000) for date in dates]
-        ts = pd.Series(vals, index=dates)
+        ts = pd.Series(vals, index=dates, name=feed_name)
         return ts
 
 def main():
